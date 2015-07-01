@@ -86,6 +86,7 @@ The following arguments are supported.
 * `disk` - (Required) Hard disk configuration. This can be specified multiple times for multiple disks. Structure is documented below.
 * `network_interface` - (Required) Network configuration. This can be specified multiple times for multiple networks. Structure is documented below.
 
+* `boot_delay` - (Optional) time to wait for dhcp. Only used if network_interface.0 is not static.
 * `datacenter` - (Optional) Datacenter name
 * `cluster` - (Optional) Cluster name, a cluster is a group of hosts.
 * `resource_pool` - (Optional) Resource pool name.
@@ -114,6 +115,11 @@ For the second and following disks,
 
 * `size` - (Required) Size of hard disk in gigabytes.
 * `iops` - (Optional) IOPS number. By default, it's unlimited.
+
+##### Outputs
+
+* `ip_address` is the ip address of the first network interface. Works with DHCP.
+* `network_interface.*.ip_address` only accessible when they are statically set.
 
 
 ##### For example
