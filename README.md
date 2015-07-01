@@ -121,6 +121,9 @@ For the second and following disks,
 * `ip_address` is the ip address of the first network interface. Works with DHCP.
 * `network_interface.*.ip_address` only accessible when they are statically set.
 
+##### Provisioners
+
+By default the host connection parameter is set to the ip address of the first interface. If you are using DHCP you will have to connect to that first interface.
 
 ##### For example
 
