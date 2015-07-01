@@ -3,6 +3,7 @@ package vsphere
 import (
 	"fmt"
 	"log"
+        "time"
 
 	"github.com/hashicorp/terraform/helper/schema"
 	"github.com/vmware/govmomi"
@@ -22,6 +23,10 @@ var DefaultDNSServers = []string{
 	"8.8.4.4",
 }
 
+func delaySecond(n time.Duration) {
+         time.Sleep(n * time.Second)
+}
+
 func resourceVSphereVirtualMachine() *schema.Resource {
 	return &schema.Resource{
 		Create: resourceVSphereVirtualMachineCreate,
@@ -35,6 +40,12 @@ func resourceVSphereVirtualMachine() *schema.Resource {
 				Required: true,
 				ForceNew: true,
 			},
+
+                        "boot_delay": &schema.Schema{
+                                Type:     schema.TypeInt,
+                                Optional: true,
+                                ForceNew: true,
+                        },
 
 			"vcpu": &schema.Schema{
 				Type:     schema.TypeInt,
@@ -71,6 +82,11 @@ func resourceVSphereVirtualMachine() *schema.Resource {
 				Optional: true,
 				ForceNew: false,
 			},
+
+                        "ip_address": &schema.Schema{
+                                Type:     schema.TypeString,
+                                Computed: true,
+                        },
 
 			"domain": &schema.Schema{
 				Type:     schema.TypeString,
@@ -115,18 +131,21 @@ func resourceVSphereVirtualMachine() *schema.Resource {
 							Type:     schema.TypeString,
 							Optional: true,
 							ForceNew: false,
+                                                        Computed: true,
 						},
 
 						"subnet_mask": &schema.Schema{
 							Type:     schema.TypeString,
 							Optional: true,
 							ForceNew: false,
+                                                        Computed: true,
 						},
 
 						"adapter_type": &schema.Schema{
 							Type:     schema.TypeString,
 							Optional: true,
 							ForceNew: false,
+                                                        Computed: true,
 						},
 					},
 				},
@@ -318,6 +337,50 @@ func resourceVSphereVirtualMachineRead(d *schema.ResourceData, meta interface{})
 	d.Set("datacenter", dc)
 	d.Set("memory", mvm.Summary.Config.MemorySizeMB)
 	d.Set("cpu", mvm.Summary.Config.NumCpu)
+
+        var ip_address string
+
+        if d.Get("network_interface.0.ip_address") != "" {
+            log.Printf("[DEBUG] DHCP is NOT set on the first interface")
+            ip_address = d.Get("network_interface.0.ip_address").(string)
+            log.Printf("[DEBUG] static ip of the first interface is %s", ip_address)
+        } else {
+            log.Printf("[DEBUG] DHCP is set on the first interface")
+            BootTime := *mvm.Summary.Runtime.BootTime
+            log.Printf("[DEBUG] vm booted at %v", BootTime)
+            duration := time.Since(BootTime)
+            log.Printf("[DEBUG] it has been %f", duration.Seconds())
+            log.Printf("[DEBUG] configured boot_delay delay is %v", d.Get("boot_delay").(int))
+            remaining_boot_delay := float64(d.Get("boot_delay").(int)) - float64(duration.Seconds())
+            log.Printf("[DEBUG] remaining time to wait %f", remaining_boot_delay)
+            if remaining_boot_delay > 0 {
+                log.Printf("[DEBUG] boot delay has been enabled, waiting another %v", int(remaining_boot_delay))
+                delaySecond( time.Duration(int(remaining_boot_delay)) )
+                //reconnect to refresh ip
+                collector := property.DefaultCollector(client.Client)
+                err = collector.RetrieveOne(context.TODO(), vm.Reference(), []string{"summary"}, &mvm)
+                ip_address = mvm.Summary.Guest.IpAddress
+                //sometimes boot_delay is too short and you get an empty ip address
+                for ip_address == "" {
+                    log.Printf("[DEBUG] problem getting ip address, retrying")
+                    collector := property.DefaultCollector(client.Client)
+                    err = collector.RetrieveOne(context.TODO(), vm.Reference(), []string{"summary"}, &mvm)
+                    ip_address = mvm.Summary.Guest.IpAddress
+                    delaySecond( time.Duration(1) )
+                }
+            } else {
+                log.Printf("[DEBUG] boot delay time has passed")
+            }
+            ip_address = mvm.Summary.Guest.IpAddress
+        }
+
+        log.Printf("[DEBUG] static ip of the first interface is %s", ip_address)
+
+        //set connection info
+        d.Set("ip_address", ip_address)
+        d.SetConnInfo(map[string]string{
+            "host": ip_address,
+        })
 
 	return nil
 }
